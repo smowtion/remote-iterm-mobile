@@ -1,0 +1,91 @@
+#!/bin/bash
+# Remote iTerm — server (7291) + client dev (7292)
+
+SOURCE="$0"
+while [ -L "$SOURCE" ]; do
+  LINK_DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ "$SOURCE" != /* ]] && SOURCE="$LINK_DIR/$SOURCE"
+done
+DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+
+PIDFILE="$DIR/.iterm-server.pid"
+LOGFILE="$DIR/.iterm-server.log"
+
+get_local_ip() {
+  ipconfig getifaddr en0 2>/dev/null || echo "localhost"
+}
+
+do_start() {
+  if [ -f "$PIDFILE" ] && kill -0 $(head -1 "$PIDFILE" 2>/dev/null) 2>/dev/null; then
+    echo "  Already running"
+    return 1
+  fi
+
+  cd "$DIR/server" && node index.js >> "$LOGFILE" 2>&1 &
+  SERVER_PID=$!
+
+  cd "$DIR/client" && npx vite --host --port 7292 >> "$LOGFILE" 2>&1 &
+  CLIENT_PID=$!
+
+  echo "$SERVER_PID $CLIENT_PID" > "$PIDFILE"
+
+  IP=$(get_local_ip)
+  URL="http://${IP}:7292"
+  node -e "
+    require('$DIR/server/node_modules/qrcode-terminal').generate('$URL', {small: true}, function(qr) {
+      var lines = qr.split('\n').filter(Boolean);
+      var info = [
+        '',
+        '  Remote iTerm',
+        '',
+        '  Local:    http://localhost:7292',
+        '  Network:  $URL',
+        '',
+        '  Scan QR from your phone',
+      ];
+      var max = Math.max(lines.length, info.length);
+      var out = '';
+      for (var i = 0; i < max; i++) {
+        var q = (lines[i] || '').padEnd(30);
+        var t = info[i] || '';
+        out += '  ' + q + t + '\n';
+      }
+      console.log('\n' + out);
+    });
+  " 2>/dev/null
+}
+
+do_stop() {
+  STOPPED=0
+  # Kill whatever is still listening on the app ports. This also catches
+  # node/vite children that were reparented after their wrapper exited.
+  for port in 7291 7292; do
+    PIDS="$(lsof -tiTCP:$port -sTCP:LISTEN 2>/dev/null)"
+    if [ -n "$PIDS" ]; then
+      kill $PIDS 2>/dev/null
+      STOPPED=1
+    fi
+  done
+  if [ -f "$PIDFILE" ]; then
+    read -r PIDS < "$PIDFILE"
+    for pid in $PIDS; do
+      pkill -P "$pid" 2>/dev/null
+    done
+    kill $PIDS 2>/dev/null
+    rm -f "$PIDFILE"
+    STOPPED=1
+  fi
+  if [ "$STOPPED" -eq 0 ]; then
+    echo "  Not running"
+    return 1
+  fi
+  echo "  Stopped"
+}
+
+case "${1:-start}" in
+  start)   do_start ;;
+  stop)    do_stop ;;
+  restart) do_stop; sleep 1; do_start ;;
+  *)       echo "Usage: iterm-server [start|stop|restart]" ;;
+esac
