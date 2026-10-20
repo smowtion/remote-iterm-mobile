@@ -6,8 +6,9 @@ This is a fork of [mammadovziya/remote-iterm](https://github.com/mammadovziya/re
 
 ## Mobile improvements
 
-- **Clean OpenCode view** — strips OpenCode progress bars, borders, token/cost footers and `Thought · …ms` badges from the terminal output. Toggle with the **`OC✓`** button.
+- **Clean OpenCode view** — strips OpenCode progress bars, borders, token/cost footers, `Thought · …ms` badges and keyboard hints such as `Press ctrl+b…`. Toggle with the **`OC✓`** button.
 - **Font size control** — the **`Aa`** button cycles through 12 / 13 / 14 / 16 / 18 px and remembers your choice.
+- **Wrap / No-wrap** — tap **`Wrap`** to switch between wrapped prose and horizontally scrollable terminal lines for wide commands.
 - **Jump to latest output** — when you scroll up, auto-scroll pauses and a floating **↓** button appears. Tap it to jump back to the bottom and resume following output.
 - **Working scroll on touch** — dragging up no longer fights the 150 ms auto-scroll.
 - **Tabs stay usable** — the `+` / `X` controls are pinned to the right, and long tab names are truncated.
@@ -72,7 +73,7 @@ remote-iterm restart  # restart
 - **Split view** — tap the split icon to show two tabs at once; each pane has its own tab bar. Tap a pane to choose where commands go.
 - **Broadcast** — tap the radio icon, choose target windows on the map, then send one command to every selected window's active tab.
 - **Scroll** — drag up to read history; auto-scroll pauses. Drag back to the bottom, tap the red lock icon, or tap the floating **↓** button to resume.
-- **Readability** — tap `Aa` to change the font size; tap `OC✓` to toggle OpenCode output cleaning.
+- **Readability** — tap `Aa` to change the font size; tap `OC✓` to toggle OpenCode output cleaning; tap `Wrap` to turn line wrapping on/off (off gives horizontal panning for wide command lines).
 
 ### Ports
 

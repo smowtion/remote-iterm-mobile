@@ -126,38 +126,72 @@ const OC_BAR_CHARS = /[▀▁▂▃▄▅▆▇█░▒▓━─═╭╮╰╯
 function cleanOpenCodeOutput(text: string): string {
   if (!text) return text;
 
-  // The TUI separates columns with very long runs of spaces; collapse them
-  // so lines wrap nicely on a phone instead of becoming blank gaps.
-  const normalized = text.replace(/[ \t]{8,}/g, '   ');
+  // Remove ANSI escapes / carriage returns and collapse the huge column gaps
+  // produced by the TUI. This is what makes the text wrap cleanly on a phone.
+  text = text
+    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '')
+    .replace(/\x1b/g, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/[ \t]{8,}/g, '   ');
+
   const out: string[] = [];
+  let lastBlank = false;
 
-  for (const rawLine of normalized.split('\n')) {
-    let line = rawLine;
+  for (const rawLine of text.split('\n')) {
+    let line = rawLine.replace(/[ \t]+$/, '');
 
-    // Collapse duplicated TUI columns (the same label repeated across a row).
-    const columns = line.split(/[ \t]{2,}/).map((c) => c.trim()).filter(Boolean);
-    if (columns.length > 1) {
-      const seen = new Set<string>();
-      const unique = columns.filter((c) => {
-        if (seen.has(c)) return false;
-        seen.add(c);
-        return true;
-      });
-      if (unique.length < columns.length) line = unique.join('   ');
-    }
-
-    // Inline OpenCode timing badges: "+ Thought · 811ms"
+    // Inline chrome: keyboard hints and timing badges.
+    line = line.replace(/\s*Press\s+(?:ctrl|cmd|shift|alt|option)\+[a-z0-9]+(?:\s+to\s+[^.\n]+)?\.?/gi, '');
     line = line.replace(/\s*(?:Background\s*\+\s*)?Thought\s*·\s*\d+(?:\.\d+)?\s*(?:ms|s)\b/g, '');
 
-    const trimmed = line.trim();
-    if (!trimmed) {
-      out.push(line);
-      continue;
+    // Drop TUI side borders and spinner glyphs.
+    line = line
+      .replace(/[┃│]/g, '')
+      .replace(/^[ \t]*[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏][ \t]?/, '')
+      .replace(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/g, '');
+
+    // Split the TUI row into columns. Drop chrome-only columns, then join the
+    // useful text with a single space instead of a wide visual gap.
+    const columns = line
+      .split(/[ \t]{2,}/)
+      .map((c) => c.trim())
+      .filter(Boolean)
+      .filter((c) => !/^(?:Build(?:\s+auto)?\s*·|Thought\s*·|Shell\s+(?:finished|started)\b|Background\b|esc\s+(?:to\s+)?interrupt\b|ctrl\+p commands)/i.test(c));
+
+    if (columns.length > 1) {
+      const seen = new Set<string>();
+      const unique: string[] = [];
+      for (const c of columns) {
+        if (!seen.has(c)) {
+          seen.add(c);
+          unique.push(c);
+        }
+      }
+      line = unique.join(' ');
+    } else if (columns.length === 0) {
+      line = '';
     }
 
-    // OpenCode footer / interrupt hint
+    line = line.replace(/[ \t]+$/, '');
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      if (!lastBlank) out.push('');
+      lastBlank = true;
+      continue;
+    }
+    lastBlank = false;
+
+    // OpenCode chrome / hints that deserve to disappear completely.
+    if (/^[•·\-–—|.\s]+$/.test(trimmed)) continue;
+    if (/^Press\s+(?:ctrl|cmd|shift|alt|option)\+/i.test(trimmed)) continue;
+    if (/^(?:↳\s*)?Shell\s+(?:finished|started)\b/i.test(trimmed)) continue;
+    if (/^(?:Background|Thought)\b/i.test(trimmed)) continue;
+    if (/esc\s+(?:to\s+)?interrupt\b/i.test(trimmed)) continue;
     if (/ctrl\+p commands/i.test(trimmed)) continue;
-    if (/^esc\s+(?:to\s+)?interrupt\b/i.test(trimmed)) continue;
+    if (/shell\s*·.*\(\d+%\)/i.test(trimmed)) continue;
+    if (/\d+(?:\.\d+)?[KM]?\s*\(\d+%\).*·\s*\$\d/.test(trimmed)) continue;
 
     // Shell / token / cost footer
     if (/^shell\s*·/i.test(trimmed)) continue;
@@ -177,6 +211,10 @@ function cleanOpenCodeOutput(text: string): string {
 
     out.push(line);
   }
+
+  // Trim leading/trailing blank lines.
+  while (out.length && !out[0].trim()) out.shift();
+  while (out.length && !out[out.length - 1].trim()) out.pop();
 
   return out.join('\n');
 }
@@ -201,6 +239,9 @@ export default function App() {
   });
   const [cleanOpenCode, setCleanOpenCode] = useState<boolean>(
     () => localStorage.getItem('iterm-clean-oc') !== '0'
+  );
+  const [wrapLines, setWrapLines] = useState<boolean>(
+    () => localStorage.getItem('iterm-wrap') !== '0'
   );
   const [broadcastMode, setBroadcastMode] = useState(false);
   const [broadcastTargets, setBroadcastTargets] = useState<Set<string>>(new Set());
@@ -245,6 +286,7 @@ export default function App() {
   useEffect(() => { splitTabIdRef.current = splitTabId; }, [splitTabId]);
   useEffect(() => { localStorage.setItem('iterm-font-size', String(fontSize)); }, [fontSize]);
   useEffect(() => { localStorage.setItem('iterm-clean-oc', cleanOpenCode ? '1' : '0'); }, [cleanOpenCode]);
+  useEffect(() => { localStorage.setItem('iterm-wrap', wrapLines ? '1' : '0'); }, [wrapLines]);
 
   // Colorized terminal lines (memoized)
   const displayContent = useMemo(
@@ -990,7 +1032,7 @@ export default function App() {
           onScroll={() => handleTerminalScroll('primary')}
           style={{
             WebkitOverflowScrolling: 'touch',
-            touchAction: 'pan-y',
+            touchAction: wrapLines ? 'pan-y' : 'pan-x pan-y',
             overscrollBehavior: 'contain',
             borderLeft: `3px solid ${splitMode && focusedPane === 'primary' ? ACCENT : ACCENT + '30'}`,
             ...(splitMode
@@ -1001,7 +1043,14 @@ export default function App() {
           }}
         >
           {displayContent ? (
-            <pre className="p-3 whitespace-pre-wrap break-words" style={{ fontSize: `${fontSize}px`, lineHeight: 1.6 }}>
+            <pre
+  className={`p-3 ${wrapLines ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'}`}
+  style={{
+    fontSize: `${fontSize}px`,
+    lineHeight: 1.6,
+    ...(wrapLines ? {} : { minWidth: 'max-content' }),
+  }}
+>
               {coloredLines.map((line, i) => (
                 <span key={i}>
                   <span style={{ color: line.color, fontWeight: line.bold ? 600 : 400 }}>
@@ -1109,13 +1158,20 @@ export default function App() {
               onScroll={() => handleTerminalScroll('split')}
               style={{
                 WebkitOverflowScrolling: 'touch',
-                touchAction: 'pan-y',
+                touchAction: wrapLines ? 'pan-y' : 'pan-x pan-y',
                 overscrollBehavior: 'contain',
                 borderLeft: `3px solid ${focusedPane === 'split' ? '#38bdf8' : '#38bdf830'}`,
               }}
             >
               {displaySplitContent ? (
-                <pre className="p-3 whitespace-pre-wrap break-words" style={{ fontSize: `${fontSize}px`, lineHeight: 1.6 }}>
+                <pre
+  className={`p-3 ${wrapLines ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'}`}
+  style={{
+    fontSize: `${fontSize}px`,
+    lineHeight: 1.6,
+    ...(wrapLines ? {} : { minWidth: 'max-content' }),
+  }}
+>
                   {splitColoredLines.map((line, i) => (
                     <span key={i}>
                       <span style={{ color: line.color, fontWeight: line.bold ? 600 : 400 }}>
@@ -1157,6 +1213,7 @@ export default function App() {
       <div className={`flex items-center gap-1.5 bg-zinc-950/60 border-t border-zinc-800/40 flex-shrink-0 overflow-x-auto no-scrollbar ${isLandscape ? 'px-2 py-1' : 'px-3 py-2'}`}>
         <QuickBtn label={`Aa${fontSize}`} onClick={cycleFontSize} color="#e4e4e7" />
         <QuickBtn label={cleanOpenCode ? 'OC✓' : 'OC'} onClick={() => setCleanOpenCode(v => !v)} color={cleanOpenCode ? '#34d399' : '#71717a'} />
+        <QuickBtn label="Wrap" onClick={() => setWrapLines(v => !v)} color={wrapLines ? '#34d399' : '#71717a'} />
         <div className="w-px h-5 bg-zinc-800 mx-1 flex-shrink-0" />
         <QuickBtn label="ESC" onClick={() => sendSpecialKey('\\x1b')} color="#f87171" />
         <QuickBtn label="^C" onClick={() => sendSpecialKey('\\x03')} color="#f87171" />
