@@ -130,12 +130,31 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('getContent', async ({ sessionId }) => {
+    socket.on('sendControl', async ({ sessionId, keys, repeat }) => {
         try {
-            const content = await iterm.getContent(sessionId);
+            await iterm.sendControl(sessionId, keys, repeat);
+            setTimeout(streamContent, 50);
+        } catch (err) {
+            console.error('SendControl error:', err);
+        }
+    });
+
+    socket.on('getContent', async ({ sessionId, maxChars }) => {
+        try {
+            const content = await iterm.getContent(sessionId, maxChars);
             if (content) socket.emit('content', { sessionId, content });
         } catch (err) {
             console.error('GetContent error:', err);
+        }
+    });
+
+    // Full scrollback for "scroll up to older messages".
+    socket.on('getHistory', async ({ sessionId }) => {
+        try {
+            const content = await iterm.getContent(sessionId, 120000);
+            if (content) socket.emit('history', { sessionId, content });
+        } catch (err) {
+            console.error('GetHistory error:', err);
         }
     });
 

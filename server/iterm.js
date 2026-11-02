@@ -12,6 +12,41 @@ const runAppleScript = (script) => {
     });
 };
 
+const DEFAULT_CONTENT_CHARS = 5000;
+const MAX_CONTENT_CHARS = 200000;
+
+// Decode JS-style escapes (\x1b, \n, \r, \t, \\) into raw characters so the
+// phone can send real key sequences instead of literal "\x1b" text.
+function decodeEscapes(input) {
+    return String(input).replace(/\\(x[0-9a-fA-F]{2}|[nrt0\\])/g, (match, seq) => {
+        if (seq[0] === 'x') return String.fromCharCode(parseInt(seq.slice(1), 16));
+        if (seq === 'n') return '\n';
+        if (seq === 'r') return '\r';
+        if (seq === 't') return '\t';
+        if (seq === '0') return '\0';
+        return '\\';
+    });
+}
+
+// Build an AppleScript expression that produces the exact characters.
+// Printable runs stay quoted; control chars (ESC, Ctrl-C, ...) become
+// `character id N` so AppleScript cannot mangle or reinterpret them.
+function toAppleScriptString(text) {
+    const parts = [];
+    let buf = '';
+    for (const ch of text) {
+        const code = ch.codePointAt(0);
+        if (code >= 32 && code !== 39 && code !== 92) {
+            buf += ch;
+            continue;
+        }
+        if (buf) { parts.push(`"${buf}"`); buf = ''; }
+        parts.push(`(character id ${code})`);
+    }
+    if (buf) parts.push(`"${buf}"`);
+    return parts.length ? parts.join(' & ') : '""';
+}
+
 const iterm = {
     // Get all windows, tabs, and sessions
     getState: async () => {
@@ -72,8 +107,11 @@ const iterm = {
         }
     },
 
-    // Get content of a specific session (truncated for performance)
-    getContent: async (sessionId) => {
+    // Get content of a specific session.
+    // `maxChars` controls how much scrollback comes back: the live stream asks
+    // for a small tail, while "load older messages" asks for the whole buffer.
+    getContent: async (sessionId, maxChars = DEFAULT_CONTENT_CHARS) => {
+        const limit = Math.max(1, Math.min(MAX_CONTENT_CHARS, Math.floor(maxChars) || DEFAULT_CONTENT_CHARS));
         let script = '';
         if (sessionId && sessionId !== 'undefined') {
             script = `
@@ -84,8 +122,8 @@ const iterm = {
                                 repeat with s in sessions of t
                                     if ((id of s) as string) is "${sessionId}" then
                                         set cont to contents of s
-                                        if (count of cont) > 5000 then
-                                            return text -5000 thru -1 of cont
+                                        if (count of cont) > ${limit} then
+                                            return text -${limit} thru -1 of cont
                                         else
                                             return cont
                                         end if
@@ -95,22 +133,27 @@ const iterm = {
                         end repeat
                     on error
                     end try
-                    return contents of current session of current window
+                    set cont to contents of current session of current window
+                    if (count of cont) > ${limit} then
+                        return text -${limit} thru -1 of cont
+                    else
+                        return cont
+                    end if
                 end tell
             `;
         } else {
             script = `
                 tell application "iTerm"
                     set cont to contents of current session of current window
-                    if (count of cont) > 5000 then
-                        return text -5000 thru -1 of cont
+                    if (count of cont) > ${limit} then
+                        return text -${limit} thru -1 of cont
                     else
                         return cont
                     end if
                 end tell
             `;
         }
-        
+
         try {
             return await runAppleScript(script);
         } catch (err) {
@@ -259,6 +302,31 @@ const iterm = {
 
         const script = `tell application "iTerm"\n${target}\nend tell`;
         return runAppleScript(script);
+    },
+
+    // Send decoded control sequences (ESC, Ctrl-C, PageUp/PageDown, arrows...).
+    // `repeat` lets the client send N keypresses in one AppleScript round-trip.
+    sendControl: async (sessionId, keys, repeat = 1) => {
+        const text = decodeEscapes(keys).repeat(Math.max(1, Math.min(50, Math.floor(repeat) || 1)));
+        if (!text) return;
+        const expr = toAppleScriptString(text);
+        const target = (sessionId && sessionId !== 'undefined')
+            ? `
+                repeat with w in windows
+                    repeat with t in tabs of w
+                        repeat with s in sessions of t
+                            if ((id of s) as string) is "${sessionId}" then
+                                tell s to write text (${expr}) newline NO
+                                return
+                            end if
+                        end repeat
+                    end repeat
+                end repeat
+                tell current session of current window to write text (${expr}) newline NO
+            `
+            : `tell current session of current window to write text (${expr}) newline NO`;
+
+        return runAppleScript(`tell application "iTerm"\n${target}\nend tell`);
     },
 
     getScreenSize: async () => {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { Plus, X, Send, Clock, ChevronUp, ChevronDown, CornerDownLeft, Trash2, Keyboard, Terminal, Lock, Unlock, Radio, Bell, Clipboard, Copy, WifiOff, Columns2 } from 'lucide-react';
 
@@ -13,6 +13,12 @@ interface ColoredLine {
   text: string;
   color: string;
   bold: boolean;
+}
+
+interface HistoryView {
+  pane: 'primary' | 'split';
+  sessionId: string;
+  content: string;
 }
 
 const ACCENT = '#10b981';
@@ -256,6 +262,7 @@ export default function App() {
   const [splitWinId, setSplitWinId] = useState<string | null>(null);
   const [splitTabId, setSplitTabId] = useState<string | null>(null);
   const [showSplitMap, setShowSplitMap] = useState(false);
+  const [historyView, setHistoryView] = useState<HistoryView | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const splitContentRef = useRef<HTMLDivElement>(null);
@@ -276,6 +283,18 @@ export default function App() {
   const focusedPaneRef = useRef(focusedPane);
   const splitWinIdRef = useRef(splitWinId);
   const splitTabIdRef = useRef(splitTabId);
+  // Scrollback / remote paging state
+  const historyViewRef = useRef<HistoryView | null>(null);
+  const historyLoadingRef = useRef(false);
+  const historyAnchorRef = useRef<{ pane: 'primary' | 'split'; scrollTop: number; scrollHeight: number } | null>(null);
+  const remotePageRef = useRef<{ primary: number; split: number }>({ primary: 0, split: 0 });
+  // Pane waiting for a history probe: if it returns no extra scrollback, the
+  // app is full-screen and the probe turns into a remote PageUp.
+  const pageUpPendingRef = useRef<'primary' | 'split' | null>(null);
+  const touchRef = useRef<{ pane: 'primary' | 'split'; lastY: number } | null>(null);
+  const lastPageKeyRef = useRef(0);
+  const liveContentRef = useRef('');
+  const liveSplitContentRef = useRef('');
 
   useEffect(() => { stateRef.current = state; }, [state]);
   useEffect(() => { winIdRef.current = selectedWinId; }, [selectedWinId]);
@@ -284,18 +303,29 @@ export default function App() {
   useEffect(() => { focusedPaneRef.current = focusedPane; }, [focusedPane]);
   useEffect(() => { splitWinIdRef.current = splitWinId; }, [splitWinId]);
   useEffect(() => { splitTabIdRef.current = splitTabId; }, [splitTabId]);
+  useEffect(() => { historyViewRef.current = historyView; }, [historyView]);
+  useEffect(() => { liveContentRef.current = content; }, [content]);
+  useEffect(() => { liveSplitContentRef.current = splitContent; }, [splitContent]);
+  // Leaving a tab/session discards the frozen scrollback view and page counter.
+  useEffect(() => {
+    setHistoryView(null);
+    remotePageRef.current = { primary: 0, split: 0 };
+  }, [selectedWinId, selectedTabId, splitSessionId]);
   useEffect(() => { localStorage.setItem('iterm-font-size', String(fontSize)); }, [fontSize]);
   useEffect(() => { localStorage.setItem('iterm-clean-oc', cleanOpenCode ? '1' : '0'); }, [cleanOpenCode]);
   useEffect(() => { localStorage.setItem('iterm-wrap', wrapLines ? '1' : '0'); }, [wrapLines]);
 
-  // Colorized terminal lines (memoized)
+  // Colorized terminal lines (memoized).
+  // When scrolled into history, the frozen buffer replaces the live tail.
+  const primarySource = historyView?.pane === 'primary' ? historyView.content : content;
+  const splitSource = historyView?.pane === 'split' ? historyView.content : splitContent;
   const displayContent = useMemo(
-    () => cleanOpenCode ? cleanOpenCodeOutput(content) : content,
-    [content, cleanOpenCode]
+    () => cleanOpenCode ? cleanOpenCodeOutput(primarySource) : primarySource,
+    [primarySource, cleanOpenCode]
   );
   const displaySplitContent = useMemo(
-    () => cleanOpenCode ? cleanOpenCodeOutput(splitContent) : splitContent,
-    [splitContent, cleanOpenCode]
+    () => cleanOpenCode ? cleanOpenCodeOutput(splitSource) : splitSource,
+    [splitSource, cleanOpenCode]
   );
   const coloredLines = useMemo(() => colorizeLines(displayContent), [displayContent]);
   const splitColoredLines = useMemo(() => colorizeLines(displaySplitContent), [displaySplitContent]);
@@ -397,6 +427,40 @@ export default function App() {
       contentChangingRef.current = true;
     });
 
+    // Full scrollback, requested when the user scrolls up past the live tail.
+    s.on('history', (data: { sessionId?: string; content: string }) => {
+      historyLoadingRef.current = false;
+      if (!data.sessionId || !data.content) return;
+
+      const activeWin = stateRef.current.find(w => w.id === winIdRef.current);
+      const activeTab = activeWin?.tabs.find(t => t.id === tabIdRef.current);
+      const primarySid = activeTab?.sessions[0]?.id;
+      const pane: 'primary' | 'split' | null =
+        data.sessionId === primarySid ? 'primary'
+          : data.sessionId === splitSessionIdRef.current ? 'split'
+            : null;
+      if (!pane) return;
+
+      const live = pane === 'primary' ? liveContentRef.current : liveSplitContentRef.current;
+      // Full-screen TUIs have no scrollback, so this returns the same screen.
+      // In that case page the app itself (PageUp) instead of freezing the view,
+      // because the redraw of the older page must stay visible.
+      if (data.content.length < live.length + 400) {
+        if (pageUpPendingRef.current === pane) {
+          pageUpPendingRef.current = null;
+          pageRemote(pane, 'up');
+        }
+        return;
+      }
+      pageUpPendingRef.current = null;
+
+      const el = pane === 'primary' ? contentRef.current : splitContentRef.current;
+      historyAnchorRef.current = el
+        ? { pane, scrollTop: el.scrollTop, scrollHeight: el.scrollHeight }
+        : null;
+      setHistoryView({ pane, sessionId: data.sessionId, content: data.content });
+    });
+
     return () => { s.disconnect(); };
   }, []);
 
@@ -423,11 +487,11 @@ export default function App() {
     return () => mq.removeEventListener('change', handler);
   }, []);
 
-  // Auto-scroll terminal to bottom (unless scroll-locked).
+  // Auto-scroll terminal to bottom (unless scroll-locked or browsing history).
   // Update the last-known scroll position so the next scroll event can tell
   // an auto-scroll (down) from a real user drag (up).
   useEffect(() => {
-    if (scrollLockedRef.current) return;
+    if (scrollLockedRef.current || historyViewRef.current) return;
     if (contentRef.current) {
       contentRef.current.scrollTop = contentRef.current.scrollHeight;
       lastPrimaryScrollRef.current = contentRef.current.scrollTop;
@@ -436,7 +500,17 @@ export default function App() {
       splitContentRef.current.scrollTop = splitContentRef.current.scrollHeight;
       lastSplitScrollRef.current = splitContentRef.current.scrollTop;
     }
-  }, [content, splitContent, scrollLocked]);
+  }, [content, splitContent, scrollLocked, historyView]);
+
+  // Keep the viewport steady when older scrollback is prepended.
+  useLayoutEffect(() => {
+    if (!historyView) return;
+    const anchor = historyAnchorRef.current;
+    if (!anchor || anchor.pane !== historyView.pane) return;
+    const el = historyView.pane === 'primary' ? contentRef.current : splitContentRef.current;
+    if (el) el.scrollTop = el.scrollHeight - anchor.scrollHeight + anchor.scrollTop;
+    historyAnchorRef.current = null;
+  }, [historyView]);
 
   // Pause auto-scroll as soon as the user drags up; resume when back at the bottom.
   const handleTerminalScroll = (pane: 'primary' | 'split') => {
@@ -449,7 +523,14 @@ export default function App() {
     const distanceFromBottom = el.scrollHeight - scrollTop - el.clientHeight;
     let next = scrollLockedRef.current;
     if (delta < -2 && distanceFromBottom > 24) next = true;
-    else if (distanceFromBottom < 8) next = false;
+    else if (distanceFromBottom < 8 && delta > 0) next = false;
+
+    // Reaching the bottom of a frozen history view resumes the live tail.
+    if (distanceFromBottom < 8 && delta > 0 && historyViewRef.current) {
+      historyViewRef.current = null;
+      setHistoryView(null);
+    }
+
     if (next !== scrollLockedRef.current) {
       scrollLockedRef.current = next;
       setScrollLocked(next);
@@ -472,13 +553,91 @@ export default function App() {
   }, [alertDone]);
 
   // --- Helpers ---
+  const getPrimarySessionId = () => {
+    const win = stateRef.current.find(w => w.id === winIdRef.current);
+    const tab = win?.tabs.find(t => t.id === tabIdRef.current);
+    return tab?.sessions[0]?.id;
+  };
+
   const getActiveSessionId = () => {
     if (focusedPaneRef.current === 'split' && splitSessionIdRef.current) {
       return splitSessionIdRef.current;
     }
-    const win = stateRef.current.find(w => w.id === winIdRef.current);
-    const tab = win?.tabs.find(t => t.id === tabIdRef.current);
-    return tab?.sessions[0]?.id;
+    return getPrimarySessionId();
+  };
+
+  // Fetch the full scrollback buffer for a pane. Only applied when it actually
+  // adds older lines (regular shells); full-screen TUIs return the live screen.
+  // `probe` means "if there is no scrollback, page the app itself instead".
+  const requestHistory = (pane: 'primary' | 'split', probe = false) => {
+    if (historyLoadingRef.current) return;
+    const sid = pane === 'primary' ? getPrimarySessionId() : splitSessionIdRef.current;
+    if (!sid) return;
+    historyLoadingRef.current = true;
+    pageUpPendingRef.current = probe ? pane : null;
+    socketRef.current?.emit('getHistory', { sessionId: sid });
+    // Never leave the loader stuck if the server does not answer.
+    setTimeout(() => { historyLoadingRef.current = false; }, 5000);
+  };
+
+  // Send PageUp/PageDown to the session itself. This is what makes old
+  // messages reachable inside full-screen apps (OpenCode, vim, less, tmux)
+  // which draw their own viewport and have no terminal scrollback.
+  const pageRemote = (pane: 'primary' | 'split', dir: 'up' | 'down', count = 1) => {
+    const sid = pane === 'primary' ? getPrimarySessionId() : splitSessionIdRef.current;
+    if (!sid || !socketRef.current) return;
+    const keys = dir === 'up' ? '\\x1b[5~' : '\\x1b[6~';
+    socketRef.current.emit('sendControl', { sessionId: sid, keys, repeat: count });
+
+    const pages = remotePageRef.current;
+    pages[pane] = dir === 'up'
+      ? Math.min(pages[pane] + count, 200)
+      : Math.max(0, pages[pane] - count);
+
+    if (dir === 'up') {
+      // Keep the newly revealed page in place instead of snapping to bottom.
+      scrollLockedRef.current = true;
+      setScrollLocked(true);
+    } else if (pages[pane] === 0) {
+      scrollLockedRef.current = false;
+      setScrollLocked(false);
+    }
+  };
+
+  // Swipe down at the top = older messages; swipe up at the bottom = newer.
+  const handlePaneTouchStart = (pane: 'primary' | 'split', e: React.TouchEvent) => {
+    touchRef.current = { pane, lastY: e.touches[0].clientY };
+  };
+
+  const handlePaneTouchMove = (pane: 'primary' | 'split', e: React.TouchEvent) => {
+    const ref = touchRef.current;
+    if (!ref || ref.pane !== pane) return;
+    const y = e.touches[0].clientY;
+    const dy = y - ref.lastY;
+    if (Math.abs(dy) < 8) return;
+    ref.lastY = y;
+
+    const el = pane === 'primary' ? contentRef.current : splitContentRef.current;
+    if (!el) return;
+
+    const atTop = el.scrollTop <= 2;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= 2;
+    const now = Date.now();
+
+    if (dy > 0 && atTop) {
+      // Dragging down past the top: load local scrollback. If the session has
+      // none (full-screen TUI), the same probe pages the app instead.
+      if (!historyViewRef.current && now - lastPageKeyRef.current > 220) {
+        lastPageKeyRef.current = now;
+        requestHistory(pane, true);
+      }
+    } else if (dy < 0 && atBottom) {
+      // Only page down when we actually paged up, so shells never see stray keys.
+      if (remotePageRef.current[pane] > 0 && now - lastPageKeyRef.current > 220) {
+        lastPageKeyRef.current = now;
+        pageRemote(pane, 'down');
+      }
+    }
   };
 
   // --- Handlers ---
@@ -640,7 +799,9 @@ export default function App() {
   };
 
   const sendSpecialKey = (keys: string) => {
-    socketRef.current?.emit('sendKeys', { sessionId: getActiveSessionId(), keys });
+    // Control keys must reach the pty as real bytes ("\x1b", "\x03", ...),
+    // not as literal backslash text; the server decodes the escapes.
+    socketRef.current?.emit('sendControl', { sessionId: getActiveSessionId(), keys });
   };
 
   const cycleFontSize = () => {
@@ -649,6 +810,15 @@ export default function App() {
   };
 
   const jumpToBottom = () => {
+    // Return paginated TUIs to their latest page in one round-trip.
+    const pane = focusedPaneRef.current;
+    const pending = remotePageRef.current[pane];
+    if (pending > 0) {
+      pageRemote(pane, 'down', pending);
+    }
+    remotePageRef.current[pane] = 0;
+    historyViewRef.current = null;
+    setHistoryView(null);
     scrollLockedRef.current = false;
     setScrollLocked(false);
     if (contentRef.current) contentRef.current.scrollTop = contentRef.current.scrollHeight;
@@ -1030,6 +1200,8 @@ export default function App() {
           className="overflow-auto relative min-h-0 min-w-0"
           onClick={() => splitMode && setFocusedPane('primary')}
           onScroll={() => handleTerminalScroll('primary')}
+          onTouchStart={(e) => handlePaneTouchStart('primary', e)}
+          onTouchMove={(e) => handlePaneTouchMove('primary', e)}
           style={{
             WebkitOverflowScrolling: 'touch',
             touchAction: wrapLines ? 'pan-y' : 'pan-x pan-y',
@@ -1156,6 +1328,8 @@ export default function App() {
               ref={splitContentRef}
               className="flex-1 overflow-auto relative min-h-0 min-w-0"
               onScroll={() => handleTerminalScroll('split')}
+              onTouchStart={(e) => handlePaneTouchStart('split', e)}
+              onTouchMove={(e) => handlePaneTouchMove('split', e)}
               style={{
                 WebkitOverflowScrolling: 'touch',
                 touchAction: wrapLines ? 'pan-y' : 'pan-x pan-y',
@@ -1193,7 +1367,7 @@ export default function App() {
       </div>
 
       {/* Jump to latest output (shown only when scrolled up) */}
-      {scrollLocked && (
+      {(scrollLocked || !!historyView) && (
         <button
           onClick={jumpToBottom}
           aria-label="Jump to latest output"
@@ -1223,6 +1397,8 @@ export default function App() {
         <div className="w-px h-5 bg-zinc-800 mx-1 flex-shrink-0" />
         <QuickBtn icon={<ChevronUp className="w-3.5 h-3.5" />} onClick={() => sendSpecialKey('\\x1b[A')} color="#a78bfa" />
         <QuickBtn icon={<ChevronDown className="w-3.5 h-3.5" />} onClick={() => sendSpecialKey('\\x1b[B')} color="#a78bfa" />
+        <QuickBtn label="PgUp" onClick={() => pageRemote(focusedPane, 'up')} color="#22d3ee" />
+        <QuickBtn label="PgDn" onClick={() => pageRemote(focusedPane, 'down')} color="#22d3ee" />
         <QuickBtn label="TAB" onClick={() => sendSpecialKey('\\t')} color="#818cf8" />
         <QuickBtn icon={<CornerDownLeft className="w-3.5 h-3.5" />} onClick={() => sendSpecialKey('\\n')} color="#34d399" />
         <div className="w-px h-5 bg-zinc-800 mx-1 flex-shrink-0" />
