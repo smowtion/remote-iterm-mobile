@@ -161,24 +161,3 @@ Built and maintained by [Smowtion](https://github.com/smowtion). Mobile UI, scro
 ## License
 
 MIT — see [LICENSE](LICENSE).
-
----
-
-## Hướng dẫn nhanh (Tiếng Việt)
-
-```bash
-npm install -g github:smowtion/remote-iterm-mobile
-remote-iterm
-```
-
-- Mở iTerm2 trước khi chạy.
-- Điện thoại kết nối **cùng Wi-Fi**, mở `http://<IP-Mac>:7292` (hoặc quét QR).
-- **Đọc output cũ:** kéo xuống khi đang ở đầu trang → tải toàn bộ scrollback. Với app toàn màn hình (OpenCode, vim, less, tmux) thao tác này gửi `PageUp`; dùng `PgDn` hoặc nút **↓** để về mới nhất.
-- **`Aa`**: đổi cỡ chữ. **`OC✓`**: bật/tắt lọc progress/status bar của OpenCode. **`Wrap`**: bật/tắt xuống dòng.
-- Tắt khi không dùng:
-
-  ```bash
-  remote-iterm stop
-  ```
-
-**Cảnh báo:** app không có mật khẩu. Chỉ dùng trên Wi-Fi tin cậy, không mở port 7291/7292 ra internet.
