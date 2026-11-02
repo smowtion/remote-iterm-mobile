@@ -1,29 +1,44 @@
 # remote-iterm-mobile
 
-Control iTerm2 from your phone over your local network — with a mobile-first UI and a cleaner OpenCode view.
+Drive iTerm2 from your phone over your local network — a mobile-first remote with real scrollback, TUI paging, split view, and a cleaned-up OpenCode view.
 
-This is a fork of [mammadovziya/remote-iterm](https://github.com/mammadovziya/remote-iterm) (MIT), focused on making the terminal comfortable to read and drive on an iPhone-sized screen.
+Fork of [mammadovziya/remote-iterm](https://github.com/mammadovziya/remote-iterm) (MIT), rebuilt for reading and typing on an iPhone-sized screen.
 
-## Mobile improvements
+## Why this fork
 
-- **Clean OpenCode view** — strips OpenCode progress bars, borders, token/cost footers, `Thought · …ms` badges and keyboard hints such as `Press ctrl+b…`. Toggle with the **`OC✓`** button.
-- **Font size control** — the **`Aa`** button cycles through 12 / 13 / 14 / 16 / 18 px and remembers your choice.
-- **Wrap / No-wrap** — tap **`Wrap`** to switch between wrapped prose and horizontally scrollable terminal lines for wide commands.
-- **Jump to latest output** — when you scroll up, auto-scroll pauses and a floating **↓** button appears. Tap it to jump back to the bottom and resume following output.
-- **Working scroll on touch** — dragging up no longer fights the 150 ms auto-scroll.
-- **Tabs stay usable** — the `+` / `X` controls are pinned to the right, and long tab names are truncated.
-- **Reliable stop** — `remote-iterm stop` now really kills the node/Vite processes listening on 7291/7292.
-- **Vite dependency fix** — pre-bundles `debug` and `react-dom/client`, which prevents the white-screen startup issue on Vite 5.4.x.
+The original works, but on a phone the terminal felt like a static screenshot: no history, no scrolling inside full-screen apps, and OpenCode's progress bars ate the screen. This fork fixes that.
+
+| | |
+|---|---|
+| **Read old output** | Scroll up in a shell and the full buffer is fetched on demand (up to 120k chars), anchored so your view does not jump. |
+| **Scroll inside TUIs** | OpenCode, vim, less and tmux draw their own viewport — no terminal scrollback exists. The app sends real `PageUp` / `PageDown` keys to the pty, so swipes and the `PgUp` / `PgDn` buttons page the app itself. |
+| **Return to live** | One tap on **↓** pages the remote app back to the newest message and resumes streaming. |
+| **Clean OpenCode** | Strips progress bars, box borders, token/cost footers, `Thought · …ms` badges and `Press ctrl+b…` hints. Toggle with **`OC✓`**. |
+| **Readable by default** | Font size cycling (**`Aa`**), wrap / no-wrap (**`Wrap`**), color-preserving ANSI rendering. |
+
+## Features
+
+- Live terminal mirror, refreshed every 150 ms, ANSI colors preserved.
+- Scrollback: a light live tail while streaming, the full buffer when you scroll up.
+- Remote paging for alternate-screen apps (PageUp / PageDown), with swipe gestures.
+- Floating **↓** button whenever you are reading history.
+- Tab bar with create / close / long-press rename, pinned on the right.
+- Multi-window picker with a spatial map of your Mac's displays and windows.
+- Split view — two tabs side by side (or stacked in portrait), each with its own tab bar.
+- Broadcast — send one command to the active tab of several windows at once.
+- Quick keys: arrows, `PgUp` / `PgDn`, `TAB`, `Enter`, `Ctrl-C`, `Ctrl-D`, `Esc`.
+- Working touch scroll that no longer fights auto-scroll.
+- Reliable `stop` that kills the node / Vite listeners on 7291 and 7292.
 
 ## Requirements
 
 - macOS with iTerm2
 - Node.js >= 18
-- Phone on the same local network (or a VPN such as Tailscale/WireGuard)
+- Phone on the same LAN (or a private VPN such as Tailscale / WireGuard)
 
 ## Install
 
-### From GitHub (recommended)
+### From GitHub
 
 ```bash
 npm install -g github:smowtion/remote-iterm-mobile
@@ -39,7 +54,7 @@ npm install
 ./iterm-server start
 ```
 
-The first run asks macOS for **Automation** permission so the app can control iTerm2 and Finder. Allow it.
+The first run asks macOS for **Automation** permission so the app can control iTerm2 and Finder. Allow it in **System Settings → Privacy & Security → Automation**.
 
 ## Usage
 
@@ -50,51 +65,55 @@ The first run asks macOS for **Automation** permission so the app can control iT
    remote-iterm
    ```
 
-3. Open the printed URL on your phone, for example:
-
-   ```
-   http://192.168.1.20:7292
-   ```
-
-4. Scan the QR code or open the URL in Safari. Add it to your Home Screen for a full-screen experience.
+3. A QR code and URL are printed, for example `http://192.168.1.20:7292`.
+4. Scan the QR or open the URL on your phone, then **Add to Home Screen** for a full-screen experience.
 
 ### Commands
 
 ```bash
-remote-iterm          # start
-remote-iterm stop     # stop
-remote-iterm restart  # restart
+remote-iterm          # start server (7291) + UI (7292)
+remote-iterm stop     # stop both
+remote-iterm restart  # restart both
 ```
 
-### Tabs, split view and broadcast
+### Reading older output
 
-- **Tab bar** — tap a tab to focus it on the Mac, `+` to create a tab, `X` to close the current one, long-press (~0.5 s) to rename it.
-- **Multiple windows** — tap the `N win` button and pick a window on the spatial map.
-- **Split view** — tap the split icon to show two tabs at once; each pane has its own tab bar. Tap a pane to choose where commands go.
-- **Broadcast** — tap the radio icon, choose target windows on the map, then send one command to every selected window's active tab.
-- **Scroll** — drag up to read history; auto-scroll pauses. Drag back to the bottom, tap the red lock icon, or tap the floating **↓** button to resume.
-- **Readability** — tap `Aa` to change the font size; tap `OC✓` to toggle OpenCode output cleaning; tap `Wrap` to turn line wrapping on/off (off gives horizontal panning for wide command lines).
+- **Shell with scrollback** — drag down past the top (or drag up, then keep pulling). The full buffer is loaded once and your position is kept.
+- **Full-screen app (OpenCode / vim / less / tmux)** — the same gesture sends `PageUp` to the app; `PgDn` and the **↓** button send `PageDown` until you are back at the newest output.
+- **Buttons** — `PgUp` / `PgDn` in the quick-key row do the same thing without gestures.
+- **Back to live** — tap **↓** (or scroll to the bottom of the loaded history).
 
-### Ports
+### Tabs, split view, broadcast
 
-- `7291` — Socket.IO server
-- `7292` — Vite dev server / UI
+- **Tab bar** — tap a tab to focus it on the Mac, `+` to create, `X` to close the current one, long-press (~0.5 s) to rename.
+- **Multiple windows** — tap the `N win` button and pick a window from the spatial map.
+- **Split view** — tap the split icon to show two tabs; tap a pane to choose where commands go. The focused pane drives `PgUp`, the quick keys and **↓**.
+- **Broadcast** — tap the radio icon, pick target windows, then send one command to every selected window's active tab.
+- **Readability** — `Aa` cycles font size (12 / 13 / 14 / 16 / 18 px, remembered), `OC✓` toggles OpenCode cleaning, `Wrap` toggles line wrapping.
+
+## Ports
+
+| Port | Service |
+|---|---|
+| `7291` | Socket.IO server (state, streaming, key input) |
+| `7292` | Vite dev server (the UI) |
 
 ## Security warning
 
-**This app has no authentication.** Anyone who can reach port 7291 or 7292 can read your terminal output and execute commands as your macOS user.
+**There is no authentication.** Anyone who can reach port 7291 or 7292 can read your terminal and run commands as your macOS user.
 
-Use it only on a network you trust. Do not port-forward 7291/7292 to the internet. Stop it when you are done:
+- Use it only on a network you trust.
+- Never port-forward 7291 / 7292 to the internet.
+- Prefer a private VPN (Tailscale / WireGuard) for remote access — and remember that any VPN peer can then control the terminal.
+- Stop it when finished:
 
-```bash
-remote-iterm stop
-```
-
-If you need remote access, put the Mac and phone on the same private VPN (Tailscale or WireGuard) rather than exposing the ports publicly. Even then, anyone with a VPN peer can control the terminal.
+  ```bash
+  remote-iterm stop
+  ```
 
 ## Troubleshooting
 
-- **White page** — hard reload the page. If it persists, clear the Vite cache and restart:
+- **White page** — hard reload. If it persists, clear the Vite cache and restart:
 
   ```bash
   remote-iterm stop
@@ -102,13 +121,38 @@ If you need remote access, put the Mac and phone on the same private VPN (Tailsc
   remote-iterm
   ```
 
-- **Phone cannot connect** — make sure both devices are on the same network, iOS Local Network permission is allowed, and the Mac firewall is not blocking Node.
-- **No tabs/windows** — open iTerm2 and grant Automation permission in **System Settings → Privacy & Security → Automation**.
+- **Phone cannot connect** — confirm both devices are on the same network, iOS Local Network permission is granted, and the Mac firewall is not blocking Node.
+- **No tabs or windows** — open iTerm2 and grant Automation permission.
+- **Old output missing in a TUI** — that app owns its viewport; use `PgUp` (or swipe down at the top) rather than expecting terminal scrollback.
 - **Logs** — `.iterm-server.log` in the package directory.
+- **Diagnostics** — `node server/diag.js` prints the detected windows / tabs / sessions.
+
+## Development
+
+```bash
+cd client && npm run dev      # UI only, port 7292
+cd server && node index.js    # API only, port 7291
+cd client && npm run build    # type-check + production bundle
+```
+
+## Changelog
+
+### 1.2.0
+
+- Scrollback support: on-demand full-buffer fetch with scroll anchoring.
+- Remote paging (`PageUp` / `PageDown`) for alternate-screen apps such as OpenCode, vim, less and tmux.
+- Swipe gestures for history and paging, plus `PgUp` / `PgDn` quick keys.
+- **↓** now restores both the live tail and the remote app's newest page.
+- Fixed quick-action keys that were typed as literal `\xNN` text instead of control bytes.
+
+### 1.1.0
+
+- Mobile UI rework, OpenCode output cleaning, split view, broadcast, window map.
+- Reliable `stop`, touch-scroll fixes, Vite 5.4 white-screen fix.
 
 ## Credits
 
-Based on [mammadovziya/remote-iterm](https://github.com/mammadovziya/remote-iterm), MIT licensed. Mobile UI changes and fixes by [Smowtion](https://github.com/smowtion).
+Based on [mammadovziya/remote-iterm](https://github.com/mammadovziya/remote-iterm), MIT licensed. Mobile UI, scrollback and paging work by [Smowtion](https://github.com/smowtion).
 
 ## License
 
@@ -123,10 +167,10 @@ npm install -g github:smowtion/remote-iterm-mobile
 remote-iterm
 ```
 
-- Mở iTerm2 trước.
-- Điện thoại kết nối **cùng Wi-Fi**, mở `http://<IP-Mac>:7292`.
-- Kéo lên để đọc output; app tự tạm dừng auto-scroll. Bấm nút **↓** để về cuối.
-- **`Aa`**: đổi cỡ chữ. **`OC✓`**: bật/tắt lọc progress/status bar của OpenCode.
+- Mở iTerm2 trước khi chạy.
+- Điện thoại kết nối **cùng Wi-Fi**, mở `http://<IP-Mac>:7292` (hoặc quét QR).
+- **Đọc output cũ:** kéo xuống khi đang ở đầu trang → tải toàn bộ scrollback. Với app toàn màn hình (OpenCode, vim, less, tmux) thao tác này gửi `PageUp`; dùng `PgDn` hoặc nút **↓** để về mới nhất.
+- **`Aa`**: đổi cỡ chữ. **`OC✓`**: bật/tắt lọc progress/status bar của OpenCode. **`Wrap`**: bật/tắt xuống dòng.
 - Tắt khi không dùng:
 
   ```bash
