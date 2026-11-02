@@ -137,6 +137,12 @@ cd client && npm run build    # type-check + production bundle
 
 ## Changelog
 
+### 1.2.1
+
+- Security: all Dependabot alerts cleared — `ws` 8.21, `qs` 6.17, `body-parser` 2.4, `proxy-addr` 2.0.8, `engine.io` 6.6.11, `socket.io-parser` 4.2.7, `path-to-regexp` 8.4.2, `postcss` 8.5.32, `nanoid` 3.3.20, `source-map-js` 1.2.2.
+- Build: Vite 5 → 8 (`@vitejs/plugin-react` 6); dev server and production build verified on the new toolchain.
+- Docs: sponsor link and funding config, upstream repo links removed, README rewritten (English only).
+
 ### 1.2.0
 
 - Scrollback support: on-demand full-buffer fetch with scroll anchoring.
