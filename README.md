@@ -4,8 +4,6 @@
 
 Drive iTerm2 from your phone over your local network — a mobile-first remote with real scrollback, TUI paging, split view, and a cleaned-up OpenCode view.
 
-![remote-iterm-mobile running on a phone](docs/screenshot.png)
-
 ## Why this app
 
 On a phone the terminal used to feel like a static screenshot: no history, no scrolling inside full-screen apps, and OpenCode's progress bars ate the screen. This rebuild fixes that.
