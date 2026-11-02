@@ -4,11 +4,11 @@
 
 Drive iTerm2 from your phone over your local network — a mobile-first remote with real scrollback, TUI paging, split view, and a cleaned-up OpenCode view.
 
-Fork of [mammadovziya/remote-iterm](https://github.com/mammadovziya/remote-iterm) (MIT), rebuilt for reading and typing on an iPhone-sized screen.
+![remote-iterm-mobile running on a phone](docs/screenshot.png)
 
-## Why this fork
+## Why this app
 
-The original works, but on a phone the terminal felt like a static screenshot: no history, no scrolling inside full-screen apps, and OpenCode's progress bars ate the screen. This fork fixes that.
+On a phone the terminal used to feel like a static screenshot: no history, no scrolling inside full-screen apps, and OpenCode's progress bars ate the screen. This rebuild fixes that.
 
 | | |
 |---|---|
@@ -158,7 +158,7 @@ If this saves you a trip back to your Mac, you can support the work here: **[ipd
 
 ## Credits
 
-Based on [mammadovziya/remote-iterm](https://github.com/mammadovziya/remote-iterm), MIT licensed. Mobile UI, scrollback and paging work by [Smowtion](https://github.com/smowtion).
+Built and maintained by [Smowtion](https://github.com/smowtion). Mobile UI, scrollback and TUI paging by the same author. MIT licensed.
 
 ## License
 
