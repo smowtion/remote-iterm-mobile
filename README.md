@@ -1,5 +1,7 @@
 # remote-iterm-mobile
 
+[![Sponsor](https://img.shields.io/badge/sponsor-ipdata.info-10b981?style=flat-square)](https://ipdata.info)
+
 Drive iTerm2 from your phone over your local network — a mobile-first remote with real scrollback, TUI paging, split view, and a cleaned-up OpenCode view.
 
 Fork of [mammadovziya/remote-iterm](https://github.com/mammadovziya/remote-iterm) (MIT), rebuilt for reading and typing on an iPhone-sized screen.
@@ -149,6 +151,10 @@ cd client && npm run build    # type-check + production bundle
 
 - Mobile UI rework, OpenCode output cleaning, split view, broadcast, window map.
 - Reliable `stop`, touch-scroll fixes, Vite 5.4 white-screen fix.
+
+## Sponsor
+
+If this saves you a trip back to your Mac, you can support the work here: **[ipdata.info](https://ipdata.info)**.
 
 ## Credits
 
