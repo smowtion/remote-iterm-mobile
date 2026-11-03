@@ -137,6 +137,13 @@ cd client && npm run build    # type-check + production bundle
 
 ## Changelog
 
+### 1.2.2
+
+- Scrollback now loads on the **first upward drag** instead of only at the very top of the buffer — older output is there by the time you reach it.
+- The live buffer shows up to 12k characters (was 5k), so most sessions have their whole scrollback on screen with normal scrolling.
+- Full-screen apps (OpenCode, vim, less, tmux) are detected automatically: once detected, **any swipe pages them** — swipe down for older, swipe up for newer — no need to hit the exact top edge first.
+- History fetch limit raised to 200k characters.
+
 ### 1.2.1
 
 - Security: all Dependabot alerts cleared — `ws` 8.21, `qs` 6.17, `body-parser` 2.4, `proxy-addr` 2.0.8, `engine.io` 6.6.11, `socket.io-parser` 4.2.7, `path-to-regexp` 8.4.2, `postcss` 8.5.32, `nanoid` 3.3.20, `source-map-js` 1.2.2.

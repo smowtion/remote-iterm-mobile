@@ -12,7 +12,9 @@ const runAppleScript = (script) => {
     });
 };
 
-const DEFAULT_CONTENT_CHARS = 5000;
+// The live stream asks for this many characters: enough to cover a whole
+// typical scrollback, so the phone can scroll natively like iTerm does.
+const DEFAULT_CONTENT_CHARS = 12000;
 const MAX_CONTENT_CHARS = 200000;
 
 // Decode JS-style escapes (\x1b, \n, \r, \t, \\) into raw characters so the

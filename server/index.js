@@ -151,7 +151,7 @@ io.on('connection', (socket) => {
     // Full scrollback for "scroll up to older messages".
     socket.on('getHistory', async ({ sessionId }) => {
         try {
-            const content = await iterm.getContent(sessionId, 120000);
+            const content = await iterm.getContent(sessionId, 200000);
             if (content) socket.emit('history', { sessionId, content });
         } catch (err) {
             console.error('GetHistory error:', err);

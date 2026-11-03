@@ -287,6 +287,10 @@ export default function App() {
   const historyViewRef = useRef<HistoryView | null>(null);
   const historyLoadingRef = useRef(false);
   const historyAnchorRef = useRef<{ pane: 'primary' | 'split'; scrollTop: number; scrollHeight: number } | null>(null);
+  const lastHistoryReqRef = useRef(0);
+  // Pane renders a full-screen TUI (no terminal scrollback) — swipes must page
+  // the app itself instead of fetching history.
+  const tuiRef = useRef<{ primary: boolean; split: boolean }>({ primary: false, split: false });
   const remotePageRef = useRef<{ primary: number; split: number }>({ primary: 0, split: 0 });
   // Pane waiting for a history probe: if it returns no extra scrollback, the
   // app is full-screen and the probe turns into a remote PageUp.
@@ -308,8 +312,12 @@ export default function App() {
   useEffect(() => { liveSplitContentRef.current = splitContent; }, [splitContent]);
   // Leaving a tab/session discards the frozen scrollback view and page counter.
   useEffect(() => {
+    historyViewRef.current = null;
     setHistoryView(null);
     remotePageRef.current = { primary: 0, split: 0 };
+    tuiRef.current = { primary: false, split: false };
+    pageUpPendingRef.current = null;
+    lastHistoryReqRef.current = 0;
   }, [selectedWinId, selectedTabId, splitSessionId]);
   useEffect(() => { localStorage.setItem('iterm-font-size', String(fontSize)); }, [fontSize]);
   useEffect(() => { localStorage.setItem('iterm-clean-oc', cleanOpenCode ? '1' : '0'); }, [cleanOpenCode]);
@@ -443,9 +451,10 @@ export default function App() {
 
       const live = pane === 'primary' ? liveContentRef.current : liveSplitContentRef.current;
       // Full-screen TUIs have no scrollback, so this returns the same screen.
-      // In that case page the app itself (PageUp) instead of freezing the view,
-      // because the redraw of the older page must stay visible.
+      // Remember that, so the next swipe pages the app itself (PageUp) instead
+      // of asking for history that does not exist.
       if (data.content.length < live.length + 400) {
+        tuiRef.current[pane] = true;
         if (pageUpPendingRef.current === pane) {
           pageUpPendingRef.current = null;
           pageRemote(pane, 'up');
@@ -453,6 +462,7 @@ export default function App() {
         return;
       }
       pageUpPendingRef.current = null;
+      tuiRef.current[pane] = false;
 
       const el = pane === 'primary' ? contentRef.current : splitContentRef.current;
       historyAnchorRef.current = el
@@ -524,6 +534,15 @@ export default function App() {
     let next = scrollLockedRef.current;
     if (delta < -2 && distanceFromBottom > 24) next = true;
     else if (distanceFromBottom < 8 && delta > 0) next = false;
+
+    // First upward drag: fetch the whole scrollback right away, so the rest of
+    // the gesture scrolls natively through older output instead of stopping at
+    // the 5k live tail. (Full-screen TUIs simply return the same screen.)
+    if (delta < -2 && !historyViewRef.current && !historyLoadingRef.current
+      && Date.now() - lastHistoryReqRef.current > 1500) {
+      lastHistoryReqRef.current = Date.now();
+      requestHistory(pane);
+    }
 
     // Reaching the bottom of a frozen history view resumes the live tail.
     if (distanceFromBottom < 8 && delta > 0 && historyViewRef.current) {
@@ -624,12 +643,22 @@ export default function App() {
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= 2;
     const now = Date.now();
 
-    if (dy > 0 && atTop) {
-      // Dragging down past the top: load local scrollback. If the session has
-      // none (full-screen TUI), the same probe pages the app instead.
-      if (!historyViewRef.current && now - lastPageKeyRef.current > 220) {
+    // Full-screen app (OpenCode, vim, less, tmux): the terminal has no
+    // scrollback, so every swipe pages the app itself. Swipe down = older,
+    // swipe up = newer — the same muscle memory as iTerm's alternate scroll.
+    if (tuiRef.current[pane]) {
+      if (now - lastPageKeyRef.current > 260) {
         lastPageKeyRef.current = now;
-        requestHistory(pane, true);
+        pageRemote(pane, dy > 0 ? 'up' : 'down');
+      }
+      return;
+    }
+
+    if (dy > 0 && atTop) {
+      // Pull past the top: make sure the remaining scrollback has been requested.
+      if (now - lastPageKeyRef.current > 220) {
+        lastPageKeyRef.current = now;
+        if (!historyViewRef.current) requestHistory(pane, true);
       }
     } else if (dy < 0 && atBottom) {
       // Only page down when we actually paged up, so shells never see stray keys.
